@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>物理シミュレーション (自動テーマ)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* CSSカスタムプロパティの定義 (ライトモードデフォルト) */
+        :root {
+            --bg-color: #f0f0f0;
+            --text-color: #333;
+            --primary-accent-color: #007bff; /* ボールの色など */
+            --border-color: #333;
+            --simulation-bg-color: #fff;
+            --controls-text-color: #333;
+            --controls-border-color: #ccc;
+            --button-bg-color: #f9f9f9;
+            --button-hover-bg-color: #e0e0e0;
+            --shadow-color: rgba(0,0,0,0.1);
+            --input-bg-color: #fff;
+        }
+
+        /* ダークモード時のカスタムプロパティ上書き */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-color: #1e1e1e;
+                --text-color: #e0e0e0;
+                /* --primary-accent-color は変更しないか、視認性に応じて調整 */
+                --border-color: #777;
+                --simulation-bg-color: #2c2c2c;
+                --controls-text-color: #e0e0e0;
+                --controls-border-color: #555;
+                --button-bg-color: #3a3a3a;
+                --button-hover-bg-color: #505050;
+                --shadow-color: rgba(255,255,255,0.08);
+                --input-bg-color: #3a3a3a;
+            }
+        }
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow: hidden; /* スクロールバーを隠す */
+            transition: background-color 0.3s ease, color 0.3s ease; /* スムーズなテーマ切り替え */
+        }
+
+        h1 {
+            color: var(--text-color);
+            margin-bottom: 20px;
+        }
+
+        #simulationArea {
+            width: 600px;
+            height: 400px;
+            border: 2px solid var(--border-color);
+            background-color: var(--simulation-bg-color);
+            position: relative; /* ボールの絶対位置指定のため */
+            overflow: hidden; /* エリア外にはみ出たボールを隠す */
+            box-shadow: 0 4px 8px var(--shadow-color);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        #ball {
+            width: 30px;
+            height: 30px;
+            background-color: var(--primary-accent-color); /* 必要ならテーマで変更 */
+            border-radius: 50%; /* 円形にする */
+            position: absolute; /* JavaScriptで位置を制御 */
+            left: 50px; /* 初期位置 X */
+            top: 50px;  /* 初期位置 Y */
+        }
+
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center; /* ラベルとスライダーの縦位置合わせ */
+        }
+
+        .controls button, .controls input[type="range"], .controls label {
+            font-family: 'Roboto', sans-serif;
+            padding: 8px 12px;
+            border: 1px solid var(--controls-border-color);
+            border-radius: 4px;
+            color: var(--controls-text-color);
+            background-color: var(--button-bg-color); /* ボタンにも背景色適用 */
+            transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+        }
+        .controls button {
+            cursor: pointer;
+        }
+        .controls button:hover {
+            background-color: var(--button-hover-bg-color);
+        }
+        .controls input[type="range"] {
+            cursor: grab;
+            padding: 0; /* スライダーの余分なパディング削除 */
+            background-color: transparent; /* スライダーのトラック背景を透明に */
+        }
+        .controls label {
+            background-color: transparent; /* ラベルの背景は透明 */
+            border: none; /* ラベルの枠線は不要 */
+            padding-left: 0;
+            padding-right: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>バウンドボールシミュレーション</h1>
+
+    <div id="simulationArea">
+        <div id="ball"></div>
+    </div>
+
+    <div class="controls">
+        <button id="startButton">開始</button>
+        <button id="resetButton">リセット</button>
+        <label for="gravitySlider">重力: <span id="gravityValue">0.2</span></label>
+        <input type="range" id="gravitySlider" min="0.05" max="1" step="0.01" value="0.2">
+        <label for="restitutionSlider">反発係数: <span id="restitutionValue">0.8</span></label>
+        <input type="range" id="restitutionSlider" min="0.1" max="0.99" step="0.01" value="0.8">
+    </div>
+
+    <script>
+        const simulationArea = document.getElementById('simulationArea');
+        const ball = document.getElementById('ball');
+        const startButton = document.getElementById('startButton');
+        const resetButton = document.getElementById('resetButton');
+        const gravitySlider = document.getElementById('gravitySlider');
+        const restitutionSlider = document.getElementById('restitutionSlider');
+        const gravityValueSpan = document.getElementById('gravityValue');
+        const restitutionValueSpan = document.getElementById('restitutionValue');
+
+        // ボールのプロパティ
+        let ballRadius = ball.offsetWidth / 2;
+        let x, y;
+        let vx, vy;
+
+        // シミュレーションパラメータ
+        let gravity = parseFloat(gravitySlider.value);
+        let restitution = parseFloat(restitutionSlider.value);
+        let friction = 0.99;
+
+        // シミュレーション領域の境界
+        let areaWidth = simulationArea.clientWidth;
+        let areaHeight = simulationArea.clientHeight;
+
+        let animationFrameId = null;
+        let isRunning = false;
+
+        function initializeBall() {
+            x = 50;
+            y = 50;
+            vx = Math.random() * 4 + 1;
+            vy = Math.random() * 2;
+            ball.style.left = x + 'px';
+            ball.style.top = y + 'px';
+        }
+
+        function update() {
+            if (!isRunning) return;
+
+            vy += gravity;
+            x += vx;
+            y += vy;
+
+            if (y + ball.offsetHeight > areaHeight) {
+                y = areaHeight - ball.offsetHeight;
+                vy *= -restitution;
+                vx *= friction;
+                if (Math.abs(vy) < gravity && y + ball.offsetHeight >= areaHeight -1) {
+                    vy = 0;
+                }
+            }
+            if (y < 0) {
+                y = 0;
+                vy *= -restitution;
+            }
+            if (x + ball.offsetWidth > areaWidth) {
+                x = areaWidth - ball.offsetWidth;
+                vx *= -restitution;
+            }
+            if (x < 0) {
+                x = 0;
+                vx *= -restitution;
+            }
+
+            ball.style.left = x + 'px';
+            ball.style.top = y + 'px';
+
+            animationFrameId = requestAnimationFrame(update);
+        }
+
+        startButton.addEventListener('click', () => {
+            if (!isRunning) {
+                isRunning = true;
+                startButton.textContent = '一時停止';
+                if (!animationFrameId) {
+                    if (x === undefined || y === undefined) { // 初回またはリセット直後
+                         initializeBall();
+                    }
+                }
+                update();
+            } else {
+                isRunning = false;
+                startButton.textContent = '再開';
+                cancelAnimationFrame(animationFrameId);
+            }
+        });
+
+        resetButton.addEventListener('click', () => {
+            isRunning = false;
+            startButton.textContent = '開始';
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+            initializeBall();
+        });
+
+        gravitySlider.addEventListener('input', (event) => {
+            gravity = parseFloat(event.target.value);
+            gravityValueSpan.textContent = gravity.toFixed(2);
+        });
+
+        restitutionSlider.addEventListener('input', (event) => {
+            restitution = parseFloat(event.target.value);
+            restitutionValueSpan.textContent = restitution.toFixed(2);
+        });
+        
+        window.addEventListener('resize', () => {
+            areaWidth = simulationArea.clientWidth;
+            areaHeight = simulationArea.clientHeight;
+            if (x + ball.offsetWidth > areaWidth) x = areaWidth - ball.offsetWidth;
+            if (y + ball.offsetHeight > areaHeight) y = areaHeight - ball.offsetHeight;
+            if (x < 0) x = 0;
+            if (y < 0) y = 0;
+            if (x !== undefined && y !== undefined) { // ボールが初期化されていれば
+                ball.style.left = x + 'px';
+                ball.style.top = y + 'px';
+            }
+        });
+
+        // 初期化
+        initializeBall(); // 初期化を確実に行う
+        gravityValueSpan.textContent = gravity.toFixed(2);
+        restitutionValueSpan.textContent = restitution.toFixed(2);
+
+    </script>
+</body>
+</html>
