@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>物理シミュレーション</title>
+    <title>物理シミュレーション (高画質版)</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <!-- p5.jsライブラリをインポート -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.1/p5.min.js"></script>
     <style>
         /* CSSカスタムプロパティの定義 (ライトモードデフォルト) */
         :root {
@@ -26,7 +28,7 @@
             :root {
                 --bg-color: #1e1e1e;
                 --text-color: #e0e0e0;
-                /* --primary-accent-color は変更しないか、視認性に応じて調整 */
+                --primary-accent-color: #42a5f5; /* ダークモード用に少し明るい青に */
                 --border-color: #777;
                 --simulation-bg-color: #2c2c2c;
                 --controls-text-color: #e0e0e0;
@@ -56,26 +58,19 @@
             color: var(--text-color);
             margin-bottom: 20px;
         }
-
+        
+        /* p5.jsが生成するcanvasを配置するコンテナ */
         #simulationArea {
             width: 600px;
             height: 400px;
             border: 2px solid var(--border-color);
-            background-color: var(--simulation-bg-color);
-            position: relative; /* ボールの絶対位置指定のため */
-            overflow: hidden; /* エリア外にはみ出たボールを隠す */
             box-shadow: 0 4px 8px var(--shadow-color);
             transition: background-color 0.3s ease, border-color 0.3s ease;
+            /* p5.jsによってcanvasが中に入るため、背景色は不要 */
         }
 
-        #ball {
-            width: 30px;
-            height: 30px;
-            background-color: var(--primary-accent-color); /* 必要ならテーマで変更 */
-            border-radius: 50%; /* 円形にする */
-            position: absolute; /* JavaScriptで位置を制御 */
-            left: 50px; /* 初期位置 X */
-            top: 50px;  /* 初期位置 Y */
+        #simulationArea canvas {
+            display: block; /* canvas下の余分なスペースを削除 */
         }
 
         .controls {
@@ -116,22 +111,21 @@
 <body>
     <h1>バウンドボールシミュレーション</h1>
 
-    <div id="simulationArea">
-        <div id="ball"></div>
-    </div>
+    <!-- p5.jsがこのdivの中にcanvasを生成します -->
+    <div id="simulationArea"></div>
 
     <div class="controls">
         <button id="startButton">開始</button>
         <button id="resetButton">リセット</button>
-        <label for="gravitySlider">重力: <span id="gravityValue">0.2</span></label>
+        <label for="gravitySlider">重力: <span id="gravityValue">0.20</span></label>
         <input type="range" id="gravitySlider" min="0.05" max="1" step="0.01" value="0.2">
-        <label for="restitutionSlider">反発係数: <span id="restitutionValue">0.8</span></label>
+        <label for="restitutionSlider">反発係数: <span id="restitutionValue">0.80</span></label>
         <input type="range" id="restitutionSlider" min="0.1" max="0.99" step="0.01" value="0.8">
     </div>
 
     <script>
+        // DOM要素の参照
         const simulationArea = document.getElementById('simulationArea');
-        const ball = document.getElementById('ball');
         const startButton = document.getElementById('startButton');
         const resetButton = document.getElementById('resetButton');
         const gravitySlider = document.getElementById('gravitySlider');
@@ -140,90 +134,117 @@
         const restitutionValueSpan = document.getElementById('restitutionValue');
 
         // ボールのプロパティ
-        let ballRadius = ball.offsetWidth / 2;
-        let x, y;
-        let vx, vy;
+        const ballRadius = 15; // ボールの半径 (px)
+        let x, y; // 位置
+        let vx, vy; // 速度
 
         // シミュレーションパラメータ
         let gravity = parseFloat(gravitySlider.value);
         let restitution = parseFloat(restitutionSlider.value);
-        let friction = 0.99;
+        let friction = 0.995; // 摩擦係数
 
-        // シミュレーション領域の境界
-        let areaWidth = simulationArea.clientWidth;
-        let areaHeight = simulationArea.clientHeight;
-
-        let animationFrameId = null;
         let isRunning = false;
 
+        // ボールの状態を初期化する関数
         function initializeBall() {
-            x = 50;
-            y = 50;
-            vx = Math.random() * 4 + 1;
+            x = 50 + ballRadius;
+            y = 50 + ballRadius;
+            vx = Math.random() * 4 + 1; // 1から5のランダムな初速
             vy = Math.random() * 2;
-            ball.style.left = x + 'px';
-            ball.style.top = y + 'px';
         }
 
-        function update() {
-            if (!isRunning) return;
+        // p5.jsの初期化関数
+        function setup() {
+            const canvas = createCanvas(simulationArea.clientWidth, simulationArea.clientHeight);
+            canvas.parent('simulationArea');
+            
+            initializeBall(); // ボールを初期化
+            noLoop(); // 最初はアニメーションを停止
+            draw(); // 初期状態を描画
+        }
 
-            vy += gravity;
-            x += vx;
-            y += vy;
+        // p5.jsのアニメーションループ関数
+        function draw() {
+            // CSS変数から現在のテーマの色を取得
+            const style = getComputedStyle(document.documentElement);
+            const simBgColor = style.getPropertyValue('--simulation-bg-color').trim();
+            const ballColor = style.getPropertyValue('--primary-accent-color').trim();
 
-            if (y + ball.offsetHeight > areaHeight) {
-                y = areaHeight - ball.offsetHeight;
-                vy *= -restitution;
-                vx *= friction;
-                if (Math.abs(vy) < gravity && y + ball.offsetHeight >= areaHeight -1) {
-                    vy = 0;
+            // 背景を描画
+            background(simBgColor);
+            
+            // isRunningがtrueのときだけ物理演算を更新
+            if (isRunning) {
+                // 物理演算
+                vy += gravity;
+                x += vx;
+                y += vy;
+
+                // 壁との衝突判定
+                // 下の壁
+                if (y + ballRadius > height) {
+                    y = height - ballRadius;
+                    vy *= -restitution;
+                    vx *= friction;
+                }
+                // 上の壁
+                if (y - ballRadius < 0) {
+                    y = ballRadius;
+                    vy *= -restitution;
+                }
+                // 右の壁
+                if (x + ballRadius > width) {
+                    x = width - ballRadius;
+                    vx *= -restitution;
+                }
+                // 左の壁
+                if (x - ballRadius < 0) {
+                    x = ballRadius;
+                    vx *= -restitution;
                 }
             }
-            if (y < 0) {
-                y = 0;
-                vy *= -restitution;
-            }
-            if (x + ball.offsetWidth > areaWidth) {
-                x = areaWidth - ball.offsetWidth;
-                vx *= -restitution;
-            }
-            if (x < 0) {
-                x = 0;
-                vx *= -restitution;
-            }
-
-            ball.style.left = x + 'px';
-            ball.style.top = y + 'px';
-
-            animationFrameId = requestAnimationFrame(update);
+            
+            // ボールを描画
+            noStroke(); // 枠線なし
+            fill(ballColor);
+            circle(x, y, ballRadius * 2);
         }
+        
+        // ウィンドウサイズが変更されたときに実行される関数
+        function windowResized() {
+            // コンテナのサイズに合わせてキャンバスをリサイズ
+            resizeCanvas(simulationArea.clientWidth, simulationArea.clientHeight);
+            // 画面外にはみ出したボールを中に戻す
+            if (x > width - ballRadius) x = width - ballRadius;
+            if (y > height - ballRadius) y = height - ballRadius;
+            if (x < ballRadius) x = ballRadius;
+            if (y < ballRadius) y = ballRadius;
+            
+            // リサイズ後も静的な状態を再描画
+            if (!isRunning) {
+                draw();
+            }
+        }
+
+        // --- イベントリスナー ---
 
         startButton.addEventListener('click', () => {
-            if (!isRunning) {
-                isRunning = true;
+            isRunning = !isRunning; // 状態を反転
+            if (isRunning) {
                 startButton.textContent = '一時停止';
-                if (!animationFrameId) {
-                    if (x === undefined || y === undefined) { // 初回またはリセット直後
-                         initializeBall();
-                    }
-                }
-                update();
+                loop(); // p5.jsのアニメーションループを開始
             } else {
-                isRunning = false;
                 startButton.textContent = '再開';
-                cancelAnimationFrame(animationFrameId);
+                noLoop(); // p5.jsのアニメーションループを停止
             }
         });
 
         resetButton.addEventListener('click', () => {
             isRunning = false;
             startButton.textContent = '開始';
-            if (animationFrameId) {
-                cancelAnimationFrame(animationFrameId);
-                animationFrameId = null;
-            }
+            noLoop();
             initializeBall();
+            draw(); // リセット後の初期状態をすぐに描画
         });
 
         gravitySlider.addEventListener('input', (event) => {
@@ -235,22 +256,8 @@
             restitution = parseFloat(event.target.value);
             restitutionValueSpan.textContent = restitution.toFixed(2);
         });
-        
-        window.addEventListener('resize', () => {
-            areaWidth = simulationArea.clientWidth;
-            areaHeight = simulationArea.clientHeight;
-            if (x + ball.offsetWidth > areaWidth) x = areaWidth - ball.offsetWidth;
-            if (y + ball.offsetHeight > areaHeight) y = areaHeight - ball.offsetHeight;
-            if (x < 0) x = 0;
-            if (y < 0) y = 0;
-            if (x !== undefined && y !== undefined) { // ボールが初期化されていれば
-                ball.style.left = x + 'px';
-                ball.style.top = y + 'px';
-            }
-        });
 
-        // 初期化
-        initializeBall(); // 初期化を確実に行う
+        // 初期値の表示を更新
         gravityValueSpan.textContent = gravity.toFixed(2);
         restitutionValueSpan.textContent = restitution.toFixed(2);
 
